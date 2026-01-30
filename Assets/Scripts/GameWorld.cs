@@ -156,13 +156,14 @@ namespace Ggj2026Game
         npcHitWriter = npcHitWriter
       };
 
+      NativeQueue<ThrowRequest> throwQueue = new NativeQueue<ThrowRequest>(Allocator.TempJob);
       var npcUpdateJob = new NPCUpdateJob
       {
         npcAngry = npcAngry,
         npcCooldown = npcCooldown,
-        throwRequest = new NativeArray<byte>(npcAngry.Length, Allocator.TempJob),
         dt = dt,
-        throwCooldown = npcThrowCooldown
+        throwCooldown = npcThrowCooldown,
+        throwWriter = throwQueue.AsParallelWriter()
       };
 
       JobHandle moveHandle = chairMoveJob.Schedule(chairActive.Length, 32);
@@ -180,18 +181,21 @@ namespace Ggj2026Game
       npcHitQueue.Dispose();
 
       // --- NPC Throws ---
-      for (int i = 0; i < npcUpdateJob.throwRequest.Length; i++)
+      while (throwQueue.TryDequeue(out var req))
       {
-        if (npcUpdateJob.throwRequest[i] == 1)
-        {
-          // Random direction
-          float angle = UnityEngine.Random.Range(0f, math.PI * 2f);
-          float2 dir = new float2(math.cos(angle), math.sin(angle));
-          float2 spawnPos = npcPos[i] + dir * throwOffset;
-          SpawnChair(spawnPos, dir * throwSpeed, i);
-        }
+        float2 npcPos2 = npcPos[req.npcIndex];
+
+        // Small forward offset to avoid self-hit
+        float2 spawnPos = npcPos2 + req.direction * throwOffset;
+
+        SpawnChair(
+            spawnPos,
+            req.direction * throwSpeed,
+            req.npcIndex
+        );
       }
-      npcUpdateJob.throwRequest.Dispose();
+
+      throwQueue.Dispose();
 
       // --- Sync Transforms ---
       playerTransform.position = new Vector3(playerPos.x, playerTransform.position.y, playerPos.y);
@@ -310,27 +314,47 @@ namespace Ggj2026Game
     [BurstCompile]
     struct NPCUpdateJob : IJobParallelFor
     {
-      public NativeArray<byte> npcAngry;
+      // NPC state
+      [ReadOnly] public NativeArray<byte> npcAngry;
       public NativeArray<float> npcCooldown;
-      public NativeArray<byte> throwRequest;
 
+      // Timing & config
       public float dt;
       public float throwCooldown;
 
+      // Output commands
+      public NativeQueue<ThrowRequest>.ParallelWriter throwWriter;
+
       public void Execute(int i)
       {
-        throwRequest[i] = 0;
-        if (npcAngry[i] == 1)
+        if (npcAngry[i] == 0)
+          return;
+
+        float cd = npcCooldown[i] - dt;
+
+        if (cd <= 0f)
         {
-          npcCooldown[i] -= dt;
-          if (npcCooldown[i] <= 0f)
+          // Reset cooldown
+          npcCooldown[i] = throwCooldown;
+
+          // Deterministic random direction
+          uint seed = (uint)(i * 92837111u + 123u);
+          var rng = new Unity.Mathematics.Random(seed);
+
+          float angle = rng.NextFloat(0f, math.PI * 2f);
+          float2 dir = new float2(math.cos(angle), math.sin(angle));
+
+          throwWriter.Enqueue(new ThrowRequest
           {
-            throwRequest[i] = 1;
-            npcCooldown[i] = throwCooldown;
-          }
+            npcIndex = i,
+            direction = dir
+          });
+        }
+        else
+        {
+          npcCooldown[i] = cd;
         }
       }
     }
   }
-
 }

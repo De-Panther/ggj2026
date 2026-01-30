@@ -21,4 +21,10 @@ namespace Ggj2026Game
   {
     public float2 pos;
   }
+
+  public struct ThrowRequest
+  {
+    public int npcIndex;
+    public float2 direction;
+  }
 }
