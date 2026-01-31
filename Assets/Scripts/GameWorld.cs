@@ -25,8 +25,16 @@ namespace Ggj2026Game
     public Transform playerTransform;
     public GameObject npcPrefab;
     public GameObject chairPrefab;
-    private Transform[] npcTransforms;
-    private Transform[] chairTransforms;
+    public Mesh npcMesh;
+    public Material npcMaterial;
+    public Mesh chairMesh;
+    public Material chairMaterial;
+    // private Transform[] npcTransforms;
+    // private Transform[] chairTransforms;
+    private NativeArray<Matrix4x4> npcMatrices;
+    private ComputeBuffer npcMatrixBuffer;
+    private NativeArray<Matrix4x4> chairMatrices;
+    private ComputeBuffer chairMatrixBuffer;
 
     [Header("Settings")]
     public float maxPlayTime = 60f;
@@ -76,9 +84,17 @@ namespace Ggj2026Game
       gridSize = (int)math.ceil(area * 2 / chairHitRadius);
       worldMin = new float2(-area, -area);
 
-      npcTransforms = new Transform[maxChairs];
-      chairTransforms = new Transform[maxChairs];
+      // npcTransforms = new Transform[maxChairs];
+      // chairTransforms = new Transform[maxChairs];
       // chairTransformAccess = new TransformAccessArray(chairTransforms.Length);
+      npcMatrices = new NativeArray<Matrix4x4>(maxChairs, Allocator.Persistent);
+      npcMatrixBuffer = new ComputeBuffer(maxChairs, 16 * 4); // 16 floats per Matrix4x4
+      npcMaterial.enableInstancing = true;
+      npcMaterial.SetBuffer("_Matrices", npcMatrixBuffer);
+      chairMatrices = new NativeArray<Matrix4x4>(maxChairs, Allocator.Persistent);
+      chairMatrixBuffer = new ComputeBuffer(maxChairs, 16 * 4); // 16 floats per Matrix4x4
+      chairMaterial.enableInstancing = true;
+      chairMaterial.SetBuffer("_Matrices", chairMatrixBuffer);
 
       // --- Initialize NativeArrays ---
       playerNearbyChairs = new NativeHashSet<int>(maxChairs, Allocator.Persistent);
@@ -101,8 +117,8 @@ namespace Ggj2026Game
         );
 
         // Instantiate prefab
-        Transform npcInstance = Instantiate(npcPrefab, pos, Quaternion.identity).transform;
-        npcTransforms[i] = npcInstance;
+        // Transform npcInstance = Instantiate(npcPrefab, pos, Quaternion.identity).transform;
+        // npcTransforms[i] = npcInstance;
 
         // Initialize data
         NPCData npc;
@@ -112,8 +128,8 @@ namespace Ggj2026Game
         npcs[i] = npc;
 
         // Spawn chairs at NPCs pos
-        Transform chairInstance = Instantiate(chairPrefab, pos, Quaternion.identity).transform;
-        chairTransforms[i] = chairInstance;
+        // Transform chairInstance = Instantiate(chairPrefab, pos, Quaternion.identity).transform;
+        // chairTransforms[i] = chairInstance;
         // chairTransformAccess.Add(chairInstance);
 
         ChairData chair;
@@ -123,15 +139,27 @@ namespace Ggj2026Game
         chair.owner = i;
         chair.nearbyPlayer = 0;
         chairs[i] = chair;
+        UpdateMatrix(i, npc.pos, npcMatrices);
+        UpdateMatrix(i, chair.pos, chairMatrices);
       }
 
       // Last chair at Player pos
-      chairTransforms[maxChairs - 1].position = Vector2.zero;
+      // chairTransforms[maxChairs - 1].position = Vector2.zero;
       ChairData chairTemp = chairs[maxChairs - 1];
       chairTemp.active = 0;
       chairTemp.pos = new float2(0, 0);
       chairTemp.owner = -1;
       chairs[maxChairs - 1] = chairTemp;
+      UpdateMatrix(maxChairs - 1, chairTemp.pos, chairMatrices);
+    }
+
+    void UpdateMatrix(int index, float2 pos, NativeArray<Matrix4x4> matrices)
+    {
+      Vector3 position = new Vector3(pos.x, 0, pos.y);
+      Quaternion rot = Quaternion.identity;
+      Vector3 scale = Vector3.one;
+
+      matrices[index] = Matrix4x4.TRS(position, rot, scale);
     }
 
     void OnDestroy()
@@ -146,6 +174,14 @@ namespace Ggj2026Game
       // if (chairTransformAccess.isCreated)
       //   chairTransformAccess.Dispose();
       npcGrid.Dispose();
+      if (npcMatrices.IsCreated)
+        npcMatrices.Dispose();
+      if (npcMatrixBuffer != null)
+        npcMatrixBuffer.Release();
+      if (chairMatrices.IsCreated)
+        chairMatrices.Dispose();
+      if (chairMatrixBuffer != null)
+        chairMatrixBuffer.Release();
     }
 
     void Update()
@@ -156,7 +192,7 @@ namespace Ggj2026Game
       }
       float dt = Time.deltaTime;
       Vector3 tempVec3 = Vector3.zero;
-      float2 tempPos;
+      // float2 tempPos;
 
       // --- Player Input ---
       Vector2 inputVector = Vector2.zero;
@@ -235,7 +271,8 @@ namespace Ggj2026Game
         npcGrid = npcGrid,
         cellSize = chairHitRadius,
         gridSize = gridSize,
-        worldMin = worldMin
+        worldMin = worldMin,
+        matrices = chairMatrices
       };
 
       var npcThrowQueue = new NativeQueue<ChairThrow>(Allocator.TempJob);
@@ -247,12 +284,13 @@ namespace Ggj2026Game
         throwSpeed = throwSpeed,
         frameSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue),
         throwCooldown = npcThrowCooldown,
-        throwQueue = npcThrowQueue.AsParallelWriter()
+        throwQueue = npcThrowQueue.AsParallelWriter(),
+        matrices = npcMatrices
       };
 
       JobHandle buildNPCGridHandle = buildNPCGridJob.Schedule();
-      JobHandle chairUpdateHandle = chairUpdateJob.Schedule(chairTransforms.Length, 64, buildNPCGridHandle);
-      JobHandle npcHandle = npcUpdateJob.Schedule(npcTransforms.Length, 64, chairUpdateHandle);
+      JobHandle chairUpdateHandle = chairUpdateJob.Schedule(maxChairs, 64, buildNPCGridHandle);
+      JobHandle npcHandle = npcUpdateJob.Schedule(maxChairs, 64, chairUpdateHandle);
       npcHandle.Complete();
       // handle = new ChairTransformJob
       // {
@@ -274,11 +312,11 @@ namespace Ggj2026Game
         chairs[hit.chairIndex] = chair;
 
         // Optional: snap chair to NPC visually
-        var t = chairTransforms[hit.chairIndex];
-        tempPos = npc.pos;
-        tempVec3.x = tempPos.x;
-        tempVec3.z = tempPos.y;
-        t.position = tempVec3;
+        // var t = chairTransforms[hit.chairIndex];
+        // tempPos = npc.pos;
+        // tempVec3.x = tempPos.x;
+        // tempVec3.z = tempPos.y;
+        // t.position = tempVec3;
       }
       chairHitQueue.Dispose();
 
@@ -314,24 +352,47 @@ namespace Ggj2026Game
       tempVec3.x = playerPos.x;
       tempVec3.z = playerPos.y;
       playerTransform.position = tempVec3;
-      for (int i = 0; i < maxChairs; i++)
-      {
-        // tempPos = npcs[i].pos;
-        // tempVec3.x = tempPos.x;
-        // tempVec3.z = tempPos.y;
-        // npcTransforms[i].position = tempVec3;
-        var chair = chairs[i];
-        if (chair.active == 1)
-        {
-          tempPos = chair.pos;
-          tempVec3.x = tempPos.x;
-          tempVec3.z = tempPos.y;
-          chairTransforms[i].position = tempVec3;
-        }
-      }
+      // for (int i = 0; i < maxChairs; i++)
+      // {
+      //   // tempPos = npcs[i].pos;
+      //   // tempVec3.x = tempPos.x;
+      //   // tempVec3.z = tempPos.y;
+      //   // npcTransforms[i].position = tempVec3;
+      //   var chair = chairs[i];
+      //   if (chair.active == 1)
+      //   {
+      //     tempPos = chair.pos;
+      //     tempVec3.x = tempPos.x;
+      //     tempVec3.z = tempPos.y;
+      //     chairTransforms[i].position = tempVec3;
+      //   }
+      // }
+      DrawInstances(npcMatrixBuffer, npcMatrices, npcMaterial, npcMesh);
+      DrawInstances(chairMatrixBuffer, chairMatrices, chairMaterial, chairMesh);
       TryAnimateScore();
       UpdateTimer();
       TryEndGame();
+    }
+
+    void DrawInstances(ComputeBuffer matrixBuffer, NativeArray<Matrix4x4> matrices, Material material, Mesh mesh)
+    {
+      // Upload to GPU
+      matrixBuffer.SetData(matrices);
+
+      // Pass VP matrix
+      Camera cam = Camera.main;
+      Matrix4x4 proj = GL.GetGPUProjectionMatrix(cam.projectionMatrix, true);
+      Matrix4x4 vp = proj * cam.worldToCameraMatrix;
+      material.SetMatrix("_VP", vp);
+
+      // Draw procedural
+      Graphics.DrawMeshInstancedProcedural(
+          mesh,
+          0,
+          material,
+          new Bounds(Vector3.zero, Vector3.one * 9999999),
+          maxChairs
+      );
     }
 
     // --- Jobs ---
@@ -359,6 +420,8 @@ namespace Ggj2026Game
       public int gridSize;
       public float2 worldMin;
 
+      public NativeArray<Matrix4x4> matrices;
+
       public void Execute(int c)
       {
         ChairData chair = chairs[c];
@@ -366,6 +429,7 @@ namespace Ggj2026Game
         if (chair.active == 1)
         {
           chair.pos += chair.vel * dt;
+          UpdateMatrix(c, chair);
         }
 
         // -----------------------
@@ -418,6 +482,15 @@ namespace Ggj2026Game
         }
         chairs[c] = chair;
       }
+
+      void UpdateMatrix(int index, ChairData chair)
+      {
+        Vector3 pos = new Vector3(chair.pos.x, 0, chair.pos.y);
+        Quaternion rot = Quaternion.identity;
+        Vector3 scale = Vector3.one;
+
+        matrices[index] = Matrix4x4.TRS(pos, rot, scale);
+      }
     }
 
     [BurstCompile]
@@ -433,6 +506,8 @@ namespace Ggj2026Game
 
       // Thread-safe queue for main thread processing
       public NativeQueue<ChairThrow>.ParallelWriter throwQueue;
+
+      public NativeArray<Matrix4x4> matrices;
 
       public void Execute(int i)
       {
@@ -476,6 +551,16 @@ namespace Ggj2026Game
         }
 
         npcs[i] = npc;
+        UpdateMatrix(i, npc);
+      }
+
+      void UpdateMatrix(int index, NPCData npc)
+      {
+        Vector3 pos = new Vector3(npc.pos.x, 0, npc.pos.y);
+        Quaternion rot = Quaternion.identity;
+        Vector3 scale = Vector3.one;
+
+        matrices[index] = Matrix4x4.TRS(pos, rot, scale);
       }
     }
 

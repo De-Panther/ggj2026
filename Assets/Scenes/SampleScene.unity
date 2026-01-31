@@ -800,8 +800,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 0.15686275, g: 0.15686275, b: 0.15686275, a: 1}
+    rgba: 4280862920
+  m_fontColor: {r: 0.78431374, g: 0.78431374, b: 0.15686275, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -918,8 +918,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4280821800
-  m_fontColor: {r: 0.15686275, g: 0.15686275, b: 0.15686275, a: 1}
+    rgba: 4280862920
+  m_fontColor: {r: 0.78431374, g: 0.78431374, b: 0.15686275, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -1203,8 +1203,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 0.15686275, g: 0.15686275, b: 0.15686275, a: 1}
+    rgba: 4280862920
+  m_fontColor: {r: 0.78431374, g: 0.78431374, b: 0.15686275, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -1816,6 +1816,10 @@ MonoBehaviour:
   playerTransform: {fileID: 1060431230}
   npcPrefab: {fileID: 3325410076537377672, guid: be0293aad72a2d24aa114f088f2305bd, type: 3}
   chairPrefab: {fileID: 5361780902096681051, guid: cd2d8b8a1034b3d459b38d9a963e246e, type: 3}
+  npcMesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
+  npcMaterial: {fileID: 2100000, guid: 85ef0dcba9da46d45a11822b115a847f, type: 2}
+  chairMesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+  chairMaterial: {fileID: 2100000, guid: be324cdefeb26a440b4a707509aa3940, type: 2}
   maxPlayTime: 60
   maxChairs: 10000
   playerSpeed: 5
@@ -1904,8 +1908,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4280821800
-  m_fontColor: {r: 0.15686275, g: 0.15686275, b: 0.15686275, a: 1}
+    rgba: 4280862920
+  m_fontColor: {r: 0.78431374, g: 0.78431374, b: 0.15686275, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
@@ -2174,8 +2178,8 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
-  m_fontColor: {r: 0.15686275, g: 0.15686275, b: 0.15686275, a: 1}
+    rgba: 4280862920
+  m_fontColor: {r: 0.78431374, g: 0.78431374, b: 0.15686275, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
   m_fontColorGradient:
