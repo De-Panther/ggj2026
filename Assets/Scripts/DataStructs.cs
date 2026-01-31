@@ -5,8 +5,8 @@ namespace Ggj2026Game
   public struct NPCData
   {
     public float2 pos;
-    public byte isAngry;
-    public float throwCooldown;
+    public float cooldown;
+    public byte angry;
   }
 
   public struct ChairData
@@ -14,7 +14,8 @@ namespace Ggj2026Game
     public float2 pos;
     public float2 vel;
     public byte active;
-    public int owner; // -1 = player
+    public byte nearbyPlayer; // Is there a nearby player
+    public int owner;
   }
 
   public struct PlayerData

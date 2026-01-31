@@ -41,18 +41,12 @@ namespace Ggj2026Game
     public float npcThrowCooldown = 0.5f;
 
     // Data
-    NativeArray<float2> npcPos;
-    NativeArray<byte> npcAngry;
-    NativeArray<float> npcCooldown;
-
-    NativeArray<float2> chairPos;
-    NativeArray<float2> chairVel;
-    NativeArray<byte> chairActive;
-    NativeArray<int> chairOwner;
-    NativeArray<byte> chairNearPlayer;
+    NativeArray<NPCData> npcs;
+    NativeArray<ChairData> chairs;
     NativeHashSet<int> playerNearbyChairs;
     NativeQueue<int> playerNearbyAddQueue;
     NativeQueue<int> playerNearbyRemoveQueue;
+    // TransformAccessArray chairTransformAccess;
 
     float2 playerPos;
     float2 lastInputDir = new float2(0f, 1f); // Default forward
@@ -77,26 +71,19 @@ namespace Ggj2026Game
 
       npcTransforms = new Transform[maxChairs];
       chairTransforms = new Transform[maxChairs];
+      // chairTransformAccess = new TransformAccessArray(chairTransforms.Length);
 
       // --- Initialize NativeArrays ---
       playerNearbyChairs = new NativeHashSet<int>(maxChairs, Allocator.Persistent);
       playerNearbyAddQueue = new NativeQueue<int>(Allocator.Persistent);
       playerNearbyRemoveQueue = new NativeQueue<int>(Allocator.Persistent);
-      npcPos = new NativeArray<float2>(maxChairs, Allocator.Persistent);
-      npcAngry = new NativeArray<byte>(maxChairs, Allocator.Persistent);
-      npcCooldown = new NativeArray<float>(maxChairs, Allocator.Persistent);
+      npcs = new NativeArray<NPCData>(maxChairs, Allocator.Persistent);
 
-      chairPos = new NativeArray<float2>(maxChairs, Allocator.Persistent);
-      chairVel = new NativeArray<float2>(maxChairs, Allocator.Persistent);
-      chairActive = new NativeArray<byte>(maxChairs, Allocator.Persistent);
-      chairOwner = new NativeArray<int>(maxChairs, Allocator.Persistent);
-      chairNearPlayer = new NativeArray<byte>(maxChairs, Allocator.Persistent);
+
+      chairs = new NativeArray<ChairData>(maxChairs, Allocator.Persistent);
 
       for (int i = 0; i < maxChairs; i++)
       {
-        chairActive[i] = 0;
-        chairNearPlayer[i] = 0;
-
         // Random spawn position on XZ plane
         Vector3 pos = new Vector3(
             UnityEngine.Random.Range(-area, area),
@@ -109,42 +96,46 @@ namespace Ggj2026Game
         npcTransforms[i] = npcInstance;
 
         // Initialize data
-        npcPos[i] = new float2(pos.x, pos.z);
-        npcAngry[i] = 0;
-        npcCooldown[i] = 0f;
+        NPCData npc;
+        npc.pos = new float2(pos.x, pos.z);
+        npc.angry = 0;
+        npc.cooldown = 0f;
+        npcs[i] = npc;
 
         // Spawn chairs at NPCs pos
         Transform chairInstance = Instantiate(chairPrefab, pos, Quaternion.identity).transform;
         chairTransforms[i] = chairInstance;
+        // chairTransformAccess.Add(chairInstance);
 
-        chairActive[i] = 0;
-        chairPos[i] = new float2(pos.x, pos.z);
-        chairVel[i] = new float2(0f, 0f);
-        chairOwner[i] = i;
+        ChairData chair;
+        chair.active = 0;
+        chair.pos = new float2(pos.x, pos.z);
+        chair.vel = new float2(0f, 0f);
+        chair.owner = i;
+        chair.nearbyPlayer = 0;
+        chairs[i] = chair;
       }
 
       // Last chair at Player pos
       chairTransforms[maxChairs - 1].position = Vector2.zero;
-      chairActive[maxChairs - 1] = 0;
-      chairPos[maxChairs - 1] = new float2(0, 0);
-      chairOwner[maxChairs - 1] = -1;
+      ChairData chairTemp = chairs[maxChairs - 1];
+      chairTemp.active = 0;
+      chairTemp.pos = new float2(0, 0);
+      chairTemp.owner = -1;
+      chairs[maxChairs - 1] = chairTemp;
     }
 
     void OnDestroy()
     {
-      npcPos.Dispose();
-      npcAngry.Dispose();
-      npcCooldown.Dispose();
+      npcs.Dispose();
 
-      chairPos.Dispose();
-      chairVel.Dispose();
-      chairActive.Dispose();
-      chairOwner.Dispose();
-      chairNearPlayer.Dispose();
+      chairs.Dispose();
 
       playerNearbyChairs.Dispose();
       playerNearbyAddQueue.Dispose();
       playerNearbyRemoveQueue.Dispose();
+      // if (chairTransformAccess.isCreated)
+      //   chairTransformAccess.Dispose();
     }
 
     void Update()
@@ -198,9 +189,11 @@ namespace Ggj2026Game
 
         if (chairIndex >= 0)
         {
-          chairVel[chairIndex] = lastInputDir * throwSpeed;
-          chairActive[chairIndex] = 1;
-          chairOwner[chairIndex] = -1;
+          var chair = chairs[chairIndex];
+          chair.vel = lastInputDir * throwSpeed;
+          chair.active = 1;
+          chair.owner = -1;
+          chairs[chairIndex] = chair;
 
           playerNearbyChairs.Remove(chairIndex);
         }
@@ -210,23 +203,11 @@ namespace Ggj2026Game
       NativeQueue<ChairHit> chairHitQueue = new NativeQueue<ChairHit>(Allocator.TempJob);
       var chairHitWriter = chairHitQueue.AsParallelWriter();
 
-      var chairMoveJob = new ChairMoveJob
+      var chairUpdateJob = new ChairUpdateJob
       {
-        chairs = chairPos,
-        chairVel = chairVel,
-        chairActive = chairActive,
-        dt = dt
-      };
-
-      var chairHitJob = new ChairHitJob
-      {
-        chairs = chairPos,
-        chairVel = chairVel,
-        chairActive = chairActive,
-        chairOwner = chairOwner,
-        chairNearPlayer = chairNearPlayer,
-        npcs = npcPos,
-        npcAngry = npcAngry,
+        chairs = chairs,
+        dt = dt,
+        npcs = npcs,
         hitRadiusSq = chairHitRadius * chairHitRadius,
         playerPos = playerPos,
         playerNearbyAddQueue = playerNearbyAddQueue.AsParallelWriter(),
@@ -237,10 +218,8 @@ namespace Ggj2026Game
       var npcThrowQueue = new NativeQueue<ChairThrow>(Allocator.TempJob);
       var npcUpdateJob = new NPCUpdateJob
       {
-        npcAngry = npcAngry,
-        npcCooldown = npcCooldown,
-        chairOwner = chairOwner,
-        chairActive = chairActive,
+        npcs = npcs,
+        chairs = chairs,
         dt = Time.deltaTime,
         throwSpeed = throwSpeed,
         frameSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue),
@@ -248,24 +227,31 @@ namespace Ggj2026Game
         throwQueue = npcThrowQueue.AsParallelWriter()
       };
 
-      JobHandle moveHandle = chairMoveJob.Schedule(chairTransforms.Length, 64);
-      JobHandle hitHandle = chairHitJob.Schedule(chairTransforms.Length, 64, moveHandle);
-      JobHandle npcHandle = npcUpdateJob.Schedule(npcTransforms.Length, 64, hitHandle);
+      JobHandle chairUpdateHandle = chairUpdateJob.Schedule(chairTransforms.Length, 64);
+      JobHandle npcHandle = npcUpdateJob.Schedule(npcTransforms.Length, 64, chairUpdateHandle);
       npcHandle.Complete();
+            // handle = new ChairTransformJob
+      // {
+      //   chairs = chairs
+      // }.Schedule(chairTransformAccess, handle);
 
       // --- Chair Hit ---
       while (chairHitQueue.TryDequeue(out var hit))
       {
         score++;
-        npcAngry[hit.npcIndex] = 1;
+        var npc = npcs[hit.npcIndex];
+        npc.angry = 1;
+        npcs[hit.npcIndex] = npc;
 
         // Chair is now "held" by NPC
-        chairOwner[hit.chairIndex] = hit.npcIndex;
-        chairActive[hit.chairIndex] = 0; // held, not flying
+        var chair = chairs[hit.chairIndex];
+        chair.owner = hit.npcIndex;
+        chair.active = 0; // held, not flying
+        chairs[hit.chairIndex] = chair;
 
         // Optional: snap chair to NPC visually
         var t = chairTransforms[hit.chairIndex];
-        tempPos = npcPos[hit.npcIndex];
+        tempPos = npc.pos;
         tempVec3.x = tempPos.x;
         tempVec3.z = tempPos.y;
         t.position = tempVec3;
@@ -274,13 +260,16 @@ namespace Ggj2026Game
 
       while (npcThrowQueue.TryDequeue(out var t))
       {
-        chairActive[t.chairIndex] = 1;
-        chairOwner[t.chairIndex] = -1;
-        chairVel[t.chairIndex] = t.direction * t.speed;
+        var chair = chairs[t.chairIndex];
+        chair.active = 1;
+        chair.owner = -1;
+        chair.vel = t.direction * t.speed;
 
         // Optional: snap to NPC position if desired
-        var pos = npcPos[t.npcIndex] + t.direction * throwOffset;
-        chairPos[t.chairIndex] = pos;
+        var npc = npcs[t.npcIndex];
+        var pos = npc.pos + t.direction * throwOffset;
+        chair.pos = pos;
+        chairs[t.chairIndex] = chair;
       }
 
       npcThrowQueue.Dispose();
@@ -303,13 +292,14 @@ namespace Ggj2026Game
       playerTransform.position = tempVec3;
       for (int i = 0; i < maxChairs; i++)
       {
-        tempPos = npcPos[i];
-        tempVec3.x = tempPos.x;
-        tempVec3.z = tempPos.y;
-        npcTransforms[i].position = tempVec3;
-        if (chairActive[i] == 1)
+        // tempPos = npcs[i].pos;
+        // tempVec3.x = tempPos.x;
+        // tempVec3.z = tempPos.y;
+        // npcTransforms[i].position = tempVec3;
+        var chair = chairs[i];
+        if (chair.active == 1)
         {
-          tempPos = chairPos[i];
+          tempPos = chair.pos;
           tempVec3.x = tempPos.x;
           tempVec3.z = tempPos.y;
           chairTransforms[i].position = tempVec3;
@@ -323,34 +313,13 @@ namespace Ggj2026Game
     // --- Jobs ---
 
     [BurstCompile]
-    struct ChairMoveJob : IJobParallelFor
+    struct ChairUpdateJob : IJobParallelFor
     {
-      public NativeArray<float2> chairs;
-      public NativeArray<float2> chairVel;
-      public NativeArray<byte> chairActive;
-      public float dt;
-
-      public void Execute(int i)
-      {
-        if (chairActive[i] == 0)
-          return;
-        chairs[i] += chairVel[i] * dt;
-      }
-    }
-
-    [BurstCompile]
-    struct ChairHitJob : IJobParallelFor
-    {
-      [ReadOnly] public NativeArray<float2> chairs;
-      public NativeArray<float2> chairVel;
-      public NativeArray<byte> chairActive;
-      public NativeArray<int> chairOwner;
-      public NativeArray<byte> chairNearPlayer;
-
-      [ReadOnly] public NativeArray<float2> npcs;
-      public NativeArray<byte> npcAngry;
+      public NativeArray<ChairData> chairs;
+      [ReadOnly] public NativeArray<NPCData> npcs;
 
       public float hitRadiusSq;
+      public float dt;
 
       // Player
       public float2 playerPos;
@@ -362,27 +331,32 @@ namespace Ggj2026Game
 
       public void Execute(int c)
       {
-        float2 chairPos = chairs[c];
+        ChairData chair = chairs[c];
+
+        if (chair.active == 1)
+        {
+          chair.pos += chair.vel * dt;
+        }
 
         // -----------------------
         // Player nearby detection
         // -----------------------
-        float2 playerDiff = chairPos - playerPos;
+        float2 playerDiff = chair.pos - playerPos;
         bool inPlayerRange = math.dot(playerDiff, playerDiff) <= hitRadiusSq;
-        bool wasNear = chairNearPlayer[c] == 1;
+        bool wasNear = chair.nearbyPlayer == 1;
 
         if (inPlayerRange && !wasNear)
         {
-          chairNearPlayer[c] = 1;
+          chair.nearbyPlayer = 1;
           playerNearbyAddQueue.Enqueue(c);
         }
         else if (!inPlayerRange && wasNear)
         {
-          chairNearPlayer[c] = 0;
+          chair.nearbyPlayer = 0;
           playerNearbyRemoveQueue.Enqueue(c);
         }
 
-        if (chairActive[c] == 0)
+        if (chair.active == 0)
           return;
 
         // -----------------------
@@ -391,10 +365,10 @@ namespace Ggj2026Game
         for (int n = 0; n < npcs.Length; n++)
         {
           // Skip owner
-          if (chairOwner[c] == n)
+          if (chair.owner == n)
             continue;
 
-          float2 diff = npcs[n] - chairPos;
+          float2 diff = npcs[n].pos - chair.pos;
           if (math.dot(diff, diff) < hitRadiusSq)
           {
             // Report hit
@@ -405,23 +379,21 @@ namespace Ggj2026Game
             });
 
             // Stop chair flight
-            chairActive[c] = 0;
-            chairVel[c] = float2.zero;
+            chair.active = 0;
+            chair.vel = float2.zero;
 
             break; // one NPC hit only
           }
         }
+        chairs[c] = chair;
       }
     }
 
     [BurstCompile]
     struct NPCUpdateJob : IJobParallelFor
     {
-      [ReadOnly] public NativeArray<byte> npcAngry;
-      public NativeArray<float> npcCooldown;
-
-      [ReadOnly] public NativeArray<int> chairOwner;
-      [ReadOnly] public NativeArray<byte> chairActive;
+      public NativeArray<NPCData> npcs;
+      [ReadOnly] public NativeArray<ChairData> chairs;
 
       public float dt;
       public float throwCooldown;
@@ -433,19 +405,21 @@ namespace Ggj2026Game
 
       public void Execute(int i)
       {
-        if (npcAngry[i] == 0)
+        NPCData npc = npcs[i];
+        if (npc.angry == 0)
           return;
 
         float cd = 0; //npcCooldown[i] - dt;
 
         if (cd <= 0f)
         {
-          npcCooldown[i] = throwCooldown;
+          npc.cooldown = throwCooldown;
 
           // Find a chair owned by this NPC
-          for (int c = 0; c < chairOwner.Length; c++)
+          for (int c = 0; c < chairs.Length; c++)
           {
-            if (chairOwner[c] == i && chairActive[c] == 0)
+            ChairData chair = chairs[c];
+            if (chair.owner == i && chair.active == 0)
             {
               uint seed = (uint)(i * 9176 + c + 13 + frameSeed);
               var rng = new Unity.Mathematics.Random(seed);
@@ -467,10 +441,31 @@ namespace Ggj2026Game
         }
         else
         {
-          npcCooldown[i] = cd;
+          npc.cooldown = cd;
         }
+
+        npcs[i] = npc;
       }
     }
+
+    // [BurstCompile]
+    // struct ChairTransformJob : IJobParallelForTransform
+    // {
+    //   [ReadOnly] public NativeArray<ChairData> chairs;
+
+    //   public void Execute(int i, TransformAccess transform)
+    //   {
+    //     var chair = chairs[i];
+    //     if (chair.active == 0)
+    //       return;
+
+    //     transform.position = new Vector3(
+    //         chair.pos.x,
+    //         0,
+    //         chair.pos.y
+    //     );
+    //   }
+    // }
 
     // --- UI ---
 
@@ -550,7 +545,7 @@ namespace Ggj2026Game
       inGameScoreText.SetText("0");
       playStartTime = Time.time;
       lastSeconds = Mathf.FloorToInt(maxPlayTime);
-      DrawTimer((int)maxPlayTime-1);
+      DrawTimer((int)maxPlayTime - 1);
     }
 
     public void ReloadScene()
