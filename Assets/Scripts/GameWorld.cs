@@ -4,11 +4,21 @@ using Unity.Jobs;
 using Unity.Collections;
 using Unity.Burst;
 using Unity.Mathematics;
+using TMPro;
+using UnityEngine.SceneManagement;
+using System.Collections;
 
 namespace Ggj2026Game
 {
   public class GameWorld : MonoBehaviour
   {
+    [Header("UI")]
+    public GameObject startMenu;
+    public GameObject inGameMenu;
+    public TMP_Text inGameScoreText;
+    public GameObject endMenu;
+    public TMP_Text endScoreText;
+
     [Header("Setup")]
     public Transform playerTransform;
     public GameObject npcPrefab;
@@ -16,11 +26,14 @@ namespace Ggj2026Game
     private Transform[] npcTransforms;
     private Transform[] chairTransforms;
 
+    [Header("Settings")]
+    public float maxPlayTime = 60f;
     public int maxChairs = 100;
     public float playerSpeed = 5f;
     public float throwSpeed = 10f;
     public float chairHitRadius = 0.5f;
     public float area = 100f;
+    private float throwOffset = 0.5f;
 
     [Header("Gameplay")]
     public float npcThrowCooldown = 0.5f;
@@ -42,10 +55,20 @@ namespace Ggj2026Game
     float2 playerPos;
     float2 lastInputDir = new float2(0f, 1f); // Default forward
 
-    float throwOffset = 0.5f;
+    int score = 0;
+    int displayScore = 0;
+    bool inGame = false;
+    float playStartTime = 0;
+
+    float countSpeed = 50f;
+    Coroutine scoreRoutine;
 
     void Start()
     {
+      startMenu.SetActive(true);
+      inGameMenu.SetActive(false);
+      endMenu.SetActive(false);
+      inGame = false;
       // --- Spawn Player (optional if already in scene) ---
       playerPos = new float2(playerTransform.position.x, playerTransform.position.z);
 
@@ -123,6 +146,10 @@ namespace Ggj2026Game
 
     void Update()
     {
+      if (!inGame)
+      {
+        return;
+      }
       float dt = Time.deltaTime;
       Vector3 tempVec3 = Vector3.zero;
       float2 tempPos;
@@ -226,6 +253,7 @@ namespace Ggj2026Game
       // --- Chair Hit ---
       while (chairHitQueue.TryDequeue(out var hit))
       {
+        score++;
         npcAngry[hit.npcIndex] = 1;
 
         // Chair is now "held" by NPC
@@ -284,6 +312,8 @@ namespace Ggj2026Game
           chairTransforms[i].position = tempVec3;
         }
       }
+      TryAnimateScore();
+      TryEndGame();
     }
 
     // --- Jobs ---
@@ -436,6 +466,65 @@ namespace Ggj2026Game
           npcCooldown[i] = cd;
         }
       }
+    }
+
+    // --- UI ---
+
+    void TryEndGame()
+    {
+      if (playStartTime + maxPlayTime <= Time.time)
+      {
+        startMenu.SetActive(false);
+        inGameMenu.SetActive(false);
+        endMenu.SetActive(true);
+        inGame = false;
+        inGameScoreText.text = score.ToString();
+        endScoreText.text = score.ToString();
+      }
+    }
+
+    void TryAnimateScore()
+    {
+      if (displayScore == score)
+      {
+        return;
+      }
+      if (scoreRoutine != null)
+      {
+        return;
+      }
+
+      scoreRoutine = StartCoroutine(AnimateScore());
+    }
+
+    IEnumerator AnimateScore()
+    {
+      while (displayScore != score)
+      {
+        displayScore = (int)Mathf.MoveTowards(
+            displayScore,
+            score,
+            Mathf.CeilToInt(countSpeed * Time.deltaTime)
+        );
+
+        inGameScoreText.text = displayScore.ToString();
+        yield return null;
+      }
+      scoreRoutine = null;
+    }
+
+    public void PlayGame()
+    {
+      startMenu.SetActive(false);
+      inGameMenu.SetActive(true);
+      endMenu.SetActive(false);
+      inGame = true;
+      inGameScoreText.text = "0";
+    }
+
+    public void ReloadScene()
+    {
+      SceneManager.LoadScene(0);
     }
   }
 }

@@ -42,7 +42,7 @@ dotnet_style_namespace_match_folder = false
 # Variables & fields
 dotnet_naming_rule.private_fields_should_be_camelcase.severity = warning
 dotnet_naming_rule.private_fields_should_be_camelcase.symbols = private_fields
-dotnet_naming_rule.private_fields_should_be_camelcase.style = camelcase_underscore
+dotnet_naming_rule.private_fields_should_be_camelcase.style = camel_case
 
 dotnet_naming_symbols.private_fields.applicable_kinds = field
 dotnet_naming_symbols.private_fields.applicable_accessibilities = private
@@ -55,7 +55,7 @@ dotnet_naming_style.camelcase_underscore.required_suffix =
 # Public members (methods, properties, fields)
 dotnet_naming_rule.public_members_should_be_pascalcase.severity = warning
 dotnet_naming_rule.public_members_should_be_pascalcase.symbols = public_members
-dotnet_naming_rule.public_members_should_be_pascalcase.style = pascalcase
+dotnet_naming_rule.public_members_should_be_pascalcase.style = camel_case
 
 dotnet_naming_symbols.public_members.applicable_kinds = property,method,field,event
 dotnet_naming_symbols.public_members.applicable_accessibilities = public,protected,internal,protected_internal
