@@ -47,9 +47,13 @@ namespace Ggj2026Game
     NativeQueue<int> playerNearbyAddQueue;
     NativeQueue<int> playerNearbyRemoveQueue;
     // TransformAccessArray chairTransformAccess;
+    NativeArray<int> npcGrid; // size = gridWidth * gridHeight
 
     float2 playerPos;
     float2 lastInputDir = new float2(0f, 1f); // Default forward
+
+    int gridSize = 0;
+    float2 worldMin = new float2();
 
     int score = 0;
     int displayScore = 0;
@@ -69,6 +73,9 @@ namespace Ggj2026Game
       // --- Spawn Player (optional if already in scene) ---
       playerPos = new float2(playerTransform.position.x, playerTransform.position.z);
 
+      gridSize = (int)math.ceil(area * 2 / chairHitRadius);
+      worldMin = new float2(-area, -area);
+
       npcTransforms = new Transform[maxChairs];
       chairTransforms = new Transform[maxChairs];
       // chairTransformAccess = new TransformAccessArray(chairTransforms.Length);
@@ -78,9 +85,11 @@ namespace Ggj2026Game
       playerNearbyAddQueue = new NativeQueue<int>(Allocator.Persistent);
       playerNearbyRemoveQueue = new NativeQueue<int>(Allocator.Persistent);
       npcs = new NativeArray<NPCData>(maxChairs, Allocator.Persistent);
-
-
       chairs = new NativeArray<ChairData>(maxChairs, Allocator.Persistent);
+      npcGrid = new NativeArray<int>(gridSize * gridSize, Allocator.Persistent);
+
+      for (int i = 0; i < npcGrid.Length; i++)
+        npcGrid[i] = -1;
 
       for (int i = 0; i < maxChairs; i++)
       {
@@ -136,6 +145,7 @@ namespace Ggj2026Game
       playerNearbyRemoveQueue.Dispose();
       // if (chairTransformAccess.isCreated)
       //   chairTransformAccess.Dispose();
+      npcGrid.Dispose();
     }
 
     void Update()
@@ -200,6 +210,15 @@ namespace Ggj2026Game
       }
 
       // --- Jobs ---
+      var buildNPCGridJob = new BuildNPCGridJob
+      {
+        npcs = npcs,
+        npcGrid = npcGrid,
+        cellSize = chairHitRadius,
+        gridSize = gridSize,
+        worldMin = worldMin
+      };
+
       NativeQueue<ChairHit> chairHitQueue = new NativeQueue<ChairHit>(Allocator.TempJob);
       var chairHitWriter = chairHitQueue.AsParallelWriter();
 
@@ -212,7 +231,11 @@ namespace Ggj2026Game
         playerPos = playerPos,
         playerNearbyAddQueue = playerNearbyAddQueue.AsParallelWriter(),
         playerNearbyRemoveQueue = playerNearbyRemoveQueue.AsParallelWriter(),
-        hitWriter = chairHitWriter
+        hitWriter = chairHitWriter,
+        npcGrid = npcGrid,
+        cellSize = chairHitRadius,
+        gridSize = gridSize,
+        worldMin = worldMin
       };
 
       var npcThrowQueue = new NativeQueue<ChairThrow>(Allocator.TempJob);
@@ -227,10 +250,11 @@ namespace Ggj2026Game
         throwQueue = npcThrowQueue.AsParallelWriter()
       };
 
-      JobHandle chairUpdateHandle = chairUpdateJob.Schedule(chairTransforms.Length, 64);
+      JobHandle buildNPCGridHandle = buildNPCGridJob.Schedule();
+      JobHandle chairUpdateHandle = chairUpdateJob.Schedule(chairTransforms.Length, 64, buildNPCGridHandle);
       JobHandle npcHandle = npcUpdateJob.Schedule(npcTransforms.Length, 64, chairUpdateHandle);
       npcHandle.Complete();
-            // handle = new ChairTransformJob
+      // handle = new ChairTransformJob
       // {
       //   chairs = chairs
       // }.Schedule(chairTransformAccess, handle);
@@ -329,6 +353,12 @@ namespace Ggj2026Game
       // Hit reporting queue for main thread
       public NativeQueue<ChairHit>.ParallelWriter hitWriter;
 
+      [ReadOnly] public NativeArray<int> npcGrid;
+
+      public float cellSize;
+      public int gridSize;
+      public float2 worldMin;
+
       public void Execute(int c)
       {
         ChairData chair = chairs[c];
@@ -357,32 +387,33 @@ namespace Ggj2026Game
         }
 
         if (chair.active == 0)
+        {
+          chairs[c] = chair;
           return;
+        }
 
         // -----------------------
         // NPC hit detection
         // -----------------------
-        for (int n = 0; n < npcs.Length; n++)
+        int cellX = (int)math.floor((chair.pos.x - worldMin.x) / cellSize);
+        int cellY = (int)math.floor((chair.pos.y - worldMin.y) / cellSize);
+        if ((uint)cellX < gridSize && (uint)cellY < gridSize)
         {
-          // Skip owner
-          if (chair.owner == n)
-            continue;
-
-          float2 diff = npcs[n].pos - chair.pos;
-          if (math.dot(diff, diff) < hitRadiusSq)
+          int cellIndex = cellX + cellY * gridSize;
+          int npcIndex = npcGrid[cellIndex];
+          if (npcIndex > -1)
           {
             // Report hit
             hitWriter.Enqueue(new ChairHit
             {
               chairIndex = c,
-              npcIndex = n
+              npcIndex = npcIndex
             });
 
             // Stop chair flight
             chair.active = 0;
             chair.vel = float2.zero;
-
-            break; // one NPC hit only
+            chairs[c] = chair;
           }
         }
         chairs[c] = chair;
@@ -466,6 +497,40 @@ namespace Ggj2026Game
     //     );
     //   }
     // }
+
+    [BurstCompile]
+    struct BuildNPCGridJob : IJob
+    {
+      public NativeArray<int> npcGrid;
+      [ReadOnly] public NativeArray<NPCData> npcs;
+
+      public float cellSize;
+      public int gridSize;
+      public float2 worldMin;
+
+      public void Execute()
+      {
+        // Clear grid
+        for (int i = 0; i < npcGrid.Length; i++)
+          npcGrid[i] = -1;
+
+        // Fill grid
+        for (int i = 0; i < npcs.Length; i++)
+        {
+          float2 pos = npcs[i].pos;
+
+          int cellX = (int)math.floor((pos.x - worldMin.x) / cellSize);
+          int cellY = (int)math.floor((pos.y - worldMin.y) / cellSize);
+
+          if ((uint)cellX >= gridSize || (uint)cellY >= gridSize)
+            continue;
+
+          int cellIndex = cellX + cellY * gridSize;
+          npcGrid[cellIndex] = i;
+        }
+      }
+    }
+
 
     // --- UI ---
 
