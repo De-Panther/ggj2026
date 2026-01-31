@@ -22,9 +22,17 @@ namespace Ggj2026Game
     public float2 pos;
   }
 
-  public struct ThrowRequest
+  public struct ChairThrow
   {
+    public int npcIndex;     // which NPC is throwing
+    public int chairIndex;   // which chair to throw
+    public float2 direction; // throw direction
+    public float speed;      // optional: throw speed
+  }
+
+  public struct ChairHit
+  {
+    public int chairIndex;
     public int npcIndex;
-    public float2 direction;
   }
 }
