@@ -616,12 +616,12 @@ MonoBehaviour:
   playerTransform: {fileID: 1060431230}
   npcPrefab: {fileID: 3325410076537377672, guid: be0293aad72a2d24aa114f088f2305bd, type: 3}
   chairPrefab: {fileID: 5361780902096681051, guid: cd2d8b8a1034b3d459b38d9a963e246e, type: 3}
-  maxChairs: 100
+  maxChairs: 10000
   playerSpeed: 5
   throwSpeed: 10
   chairHitRadius: 0.5
-  area: 10
-  npcThrowCooldown: 0.5
+  area: 100
+  npcThrowCooldown: 0
 --- !u!4 &1900550528
 Transform:
   m_ObjectHideFlags: 0
