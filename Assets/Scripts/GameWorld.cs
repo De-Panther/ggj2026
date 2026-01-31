@@ -7,6 +7,7 @@ using Unity.Mathematics;
 using TMPro;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System.Globalization;
 
 namespace Ggj2026Game
 {
@@ -16,6 +17,7 @@ namespace Ggj2026Game
     public GameObject startMenu;
     public GameObject inGameMenu;
     public TMP_Text inGameScoreText;
+    public TMP_Text inGameTimerText;
     public GameObject endMenu;
     public TMP_Text endScoreText;
 
@@ -59,8 +61,9 @@ namespace Ggj2026Game
     int displayScore = 0;
     bool inGame = false;
     float playStartTime = 0;
+    int lastSeconds = -1;
 
-    float countSpeed = 50f;
+    readonly float countSpeed = 50f;
     Coroutine scoreRoutine;
 
     void Start()
@@ -313,6 +316,7 @@ namespace Ggj2026Game
         }
       }
       TryAnimateScore();
+      UpdateTimer();
       TryEndGame();
     }
 
@@ -478,9 +482,33 @@ namespace Ggj2026Game
         inGameMenu.SetActive(false);
         endMenu.SetActive(true);
         inGame = false;
-        inGameScoreText.text = score.ToString();
-        endScoreText.text = score.ToString();
+        endScoreText.SetText(score.ToString("#,0", CultureInfo.InvariantCulture));
       }
+    }
+
+    void UpdateTimer()
+    {
+      float timeRemaining = playStartTime + maxPlayTime - Time.time;
+      if (timeRemaining < 0f)
+        timeRemaining = 0f;
+
+      int seconds = Mathf.FloorToInt(timeRemaining);
+
+      // Update text ONLY when seconds change
+      if (seconds != lastSeconds)
+      {
+        lastSeconds = seconds;
+
+        DrawTimer(seconds);
+      }
+    }
+
+    void DrawTimer(int seconds)
+    {
+      seconds++;
+      int minutes = seconds / 60;
+      int secs = seconds % 60;
+      inGameTimerText.SetText("{0:00}:{1:00}", minutes, secs);
     }
 
     void TryAnimateScore()
@@ -507,7 +535,7 @@ namespace Ggj2026Game
             Mathf.CeilToInt(countSpeed * Time.deltaTime)
         );
 
-        inGameScoreText.text = displayScore.ToString();
+        inGameScoreText.SetText(displayScore.ToString("#,0", CultureInfo.InvariantCulture));
         yield return null;
       }
       scoreRoutine = null;
@@ -519,7 +547,10 @@ namespace Ggj2026Game
       inGameMenu.SetActive(true);
       endMenu.SetActive(false);
       inGame = true;
-      inGameScoreText.text = "0";
+      inGameScoreText.SetText("0");
+      playStartTime = Time.time;
+      lastSeconds = Mathf.FloorToInt(maxPlayTime);
+      DrawTimer((int)maxPlayTime-1);
     }
 
     public void ReloadScene()
