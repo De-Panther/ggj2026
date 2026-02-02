@@ -20,9 +20,13 @@ namespace Ggj2026Game
     public TMP_Text inGameTimerText;
     public GameObject endMenu;
     public TMP_Text endScoreText;
+    public GameObject mobileCanvas;
 
     [Header("Setup")]
     public Transform playerTransform;
+    public Transform furtherChair1;
+    public Transform furtherChair2;
+    public Transform cameraTransform;
     public GameObject npcPrefab;
     public GameObject chairPrefab;
     public Mesh npcMesh;
@@ -37,6 +41,8 @@ namespace Ggj2026Game
     private ComputeBuffer chairMatrixBuffer;
 
     [Header("Settings")]
+    public float cameraStart = 15f;
+    public float cameraEnd = 200f;
     public float maxPlayTime = 60f;
     public int maxChairs = 100;
     public float playerSpeed = 5f;
@@ -74,6 +80,7 @@ namespace Ggj2026Game
 
     void Start()
     {
+      mobileCanvas.SetActive(Application.isMobilePlatform);
       startMenu.SetActive(true);
       inGameMenu.SetActive(false);
       endMenu.SetActive(false);
@@ -155,8 +162,8 @@ namespace Ggj2026Game
 
     void UpdateMatrix(int index, float2 pos, NativeArray<Matrix4x4> matrices)
     {
-      Vector3 position = new Vector3(pos.x, 0, pos.y);
-      Quaternion rot = Quaternion.identity;
+      Vector3 position = new Vector3(pos.x, -1, pos.y);
+      Quaternion rot = Quaternion.Euler(270f, 0f, 0f);
       Vector3 scale = Vector3.one;
 
       matrices[index] = Matrix4x4.TRS(position, rot, scale);
@@ -246,13 +253,16 @@ namespace Ggj2026Game
       }
 
       // --- Jobs ---
+      var furthestPose = new NativeReference<float2>(Allocator.TempJob);
       var buildNPCGridJob = new BuildNPCGridJob
       {
         npcs = npcs,
+        chairs = chairs,
         npcGrid = npcGrid,
         cellSize = chairHitRadius,
         gridSize = gridSize,
-        worldMin = worldMin
+        worldMin = worldMin,
+        furthestPose = furthestPose
       };
 
       NativeQueue<ChairHit> chairHitQueue = new NativeQueue<ChairHit>(Allocator.TempJob);
@@ -292,6 +302,13 @@ namespace Ggj2026Game
       JobHandle chairUpdateHandle = chairUpdateJob.Schedule(maxChairs, 64, buildNPCGridHandle);
       JobHandle npcHandle = npcUpdateJob.Schedule(maxChairs, 64, chairUpdateHandle);
       npcHandle.Complete();
+
+      float2 furthest = furthestPose.Value;
+      tempVec3.x = furthest.x;
+      tempVec3.z = furthest.y;
+      furtherChair1.position = tempVec3;
+      furtherChair2.position = -tempVec3;
+      furthestPose.Dispose();
       // handle = new ChairTransformJob
       // {
       //   chairs = chairs
@@ -367,11 +384,15 @@ namespace Ggj2026Game
       //     chairTransforms[i].position = tempVec3;
       //   }
       // }
-      DrawInstances(npcMatrixBuffer, npcMatrices, npcMaterial, npcMesh);
-      DrawInstances(chairMatrixBuffer, chairMatrices, chairMaterial, chairMesh);
       TryAnimateScore();
       UpdateTimer();
       TryEndGame();
+    }
+
+    void LateUpdate()
+    {
+      DrawInstances(npcMatrixBuffer, npcMatrices, npcMaterial, npcMesh);
+      DrawInstances(chairMatrixBuffer, chairMatrices, chairMaterial, chairMesh);
     }
 
     void DrawInstances(ComputeBuffer matrixBuffer, NativeArray<Matrix4x4> matrices, Material material, Mesh mesh)
@@ -485,8 +506,8 @@ namespace Ggj2026Game
 
       void UpdateMatrix(int index, ChairData chair)
       {
-        Vector3 pos = new Vector3(chair.pos.x, 0, chair.pos.y);
-        Quaternion rot = Quaternion.identity;
+        Vector3 pos = new Vector3(chair.pos.x, -1, chair.pos.y);
+        Quaternion rot = Quaternion.Euler(270f, 0f, 0f);
         Vector3 scale = Vector3.one;
 
         matrices[index] = Matrix4x4.TRS(pos, rot, scale);
@@ -515,7 +536,7 @@ namespace Ggj2026Game
         if (npc.angry == 0)
           return;
 
-        float cd = 0; //npcCooldown[i] - dt;
+        float cd = npc.cooldown - dt;
 
         if (cd <= 0f)
         {
@@ -556,8 +577,8 @@ namespace Ggj2026Game
 
       void UpdateMatrix(int index, NPCData npc)
       {
-        Vector3 pos = new Vector3(npc.pos.x, 0, npc.pos.y);
-        Quaternion rot = Quaternion.identity;
+        Vector3 pos = new Vector3(npc.pos.x, -1, npc.pos.y);
+        Quaternion rot = Quaternion.Euler(270f, 0f, 0f);
         Vector3 scale = Vector3.one;
 
         matrices[index] = Matrix4x4.TRS(pos, rot, scale);
@@ -588,13 +609,17 @@ namespace Ggj2026Game
     {
       public NativeArray<int> npcGrid;
       [ReadOnly] public NativeArray<NPCData> npcs;
+      [ReadOnly] public NativeArray<ChairData> chairs;
 
       public float cellSize;
       public int gridSize;
       public float2 worldMin;
+      public NativeReference<float2> furthestPose;
 
       public void Execute()
       {
+        float maxDistSq = -1f;
+        float2 furthest = float2.zero;
         // Clear grid
         for (int i = 0; i < npcGrid.Length; i++)
           npcGrid[i] = -1;
@@ -612,7 +637,16 @@ namespace Ggj2026Game
 
           int cellIndex = cellX + cellY * gridSize;
           npcGrid[cellIndex] = i;
+
+          pos = chairs[i].pos;
+          float distSq = math.lengthsq(pos);
+          if (distSq > maxDistSq)
+          {
+            maxDistSq = distSq;
+            furthest = pos;
+          }
         }
+        furthestPose.Value = furthest;
       }
     }
 
@@ -621,6 +655,8 @@ namespace Ggj2026Game
 
     void TryEndGame()
     {
+      float partTime = (Time.time - playStartTime) / maxPlayTime;
+      cameraTransform.position = new Vector3(0, Mathf.Lerp(cameraStart, cameraEnd, partTime), 0);
       if (playStartTime + maxPlayTime <= Time.time)
       {
         startMenu.SetActive(false);
@@ -658,16 +694,17 @@ namespace Ggj2026Game
 
     void TryAnimateScore()
     {
-      if (displayScore == score)
-      {
-        return;
-      }
-      if (scoreRoutine != null)
-      {
-        return;
-      }
+      inGameScoreText.SetText(score.ToString("#,0", CultureInfo.InvariantCulture));
+      // if (displayScore == score)
+      // {
+      //   return;
+      // }
+      // if (scoreRoutine != null)
+      // {
+      //   return;
+      // }
 
-      scoreRoutine = StartCoroutine(AnimateScore());
+      // scoreRoutine = StartCoroutine(AnimateScore());
     }
 
     IEnumerator AnimateScore()
