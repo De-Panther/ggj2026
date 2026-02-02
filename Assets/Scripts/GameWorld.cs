@@ -1,11 +1,12 @@
 ﻿using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using Unity.Jobs;
 using Unity.Collections;
 using Unity.Burst;
 using Unity.Mathematics;
 using TMPro;
-using UnityEngine.SceneManagement;
 using System.Collections;
 using System.Globalization;
 
@@ -18,6 +19,7 @@ namespace Ggj2026Game
     public GameObject inGameMenu;
     public TMP_Text inGameScoreText;
     public TMP_Text inGameTimerText;
+    public Image inGameMaskIcon;
     public GameObject endMenu;
     public TMP_Text endScoreText;
     public GameObject mobileCanvas;
@@ -656,6 +658,7 @@ namespace Ggj2026Game
     void TryEndGame()
     {
       float partTime = (Time.time - playStartTime) / maxPlayTime;
+      inGameMaskIcon.fillAmount = 1f - partTime;
       cameraTransform.position = new Vector3(0, Mathf.Lerp(cameraStart, cameraEnd, partTime), 0);
       if (playStartTime + maxPlayTime <= Time.time)
       {
