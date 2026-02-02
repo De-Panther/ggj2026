@@ -14,6 +14,10 @@ namespace Ggj2026Game
 {
   public class GameWorld : MonoBehaviour
   {
+    [Header("Input Actions")]
+    public InputActionReference moveActionRef;
+    public InputActionReference attackActionRef;
+
     [Header("UI")]
     public GameObject startMenu;
     public GameObject inGameMenu;
@@ -76,6 +80,8 @@ namespace Ggj2026Game
     bool inGame = false;
     float playStartTime = 0;
     int lastSeconds = -1;
+    InputAction moveAction;
+    InputAction attackAction;
 
     readonly float countSpeed = 50f;
     Coroutine scoreRoutine;
@@ -193,6 +199,24 @@ namespace Ggj2026Game
         chairMatrixBuffer.Release();
     }
 
+    private void OnEnable()
+    {
+      // Get the actual InputActions from the references
+      moveAction = moveActionRef.action;
+      attackAction = attackActionRef.action;
+
+      // Enable them
+      moveAction.Enable();
+      attackAction.Enable();
+    }
+
+    private void OnDisable()
+    {
+      // Disable actions to avoid memory leaks
+      moveAction.Disable();
+      attackAction.Disable();
+    }
+
     void Update()
     {
       if (!inGame)
@@ -204,19 +228,19 @@ namespace Ggj2026Game
       // float2 tempPos;
 
       // --- Player Input ---
-      Vector2 inputVector = Vector2.zero;
-      if (Keyboard.current != null)
-      {
-        // WASD keys
-        inputVector.x = (Keyboard.current.dKey.isPressed ? 1f : 0f) - (Keyboard.current.aKey.isPressed ? 1f : 0f);
-        inputVector.y = (Keyboard.current.wKey.isPressed ? 1f : 0f) - (Keyboard.current.sKey.isPressed ? 1f : 0f);
-      }
+      Vector2 inputVector = moveAction.ReadValue<Vector2>();
+      // if (Keyboard.current != null)
+      // {
+      //   // WASD keys
+      //   inputVector.x = (Keyboard.current.dKey.isPressed ? 1f : 0f) - (Keyboard.current.aKey.isPressed ? 1f : 0f);
+      //   inputVector.y = (Keyboard.current.wKey.isPressed ? 1f : 0f) - (Keyboard.current.sKey.isPressed ? 1f : 0f);
+      // }
 
-      if (Gamepad.current != null)
-      {
-        // Left stick overrides keyboard if present
-        inputVector = Gamepad.current.leftStick.ReadValue();
-      }
+      // if (Gamepad.current != null)
+      // {
+      //   // Left stick overrides keyboard if present
+      //   inputVector = Gamepad.current.leftStick.ReadValue();
+      // }
 
       // Convert to float2 for data-oriented logic
       float2 input = new float2(inputVector.x, inputVector.y);
@@ -229,8 +253,9 @@ namespace Ggj2026Game
       }
 
       // Player throw (space key or gamepad south button)
-      bool throwPressed = (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame) ||
-                          (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame);
+      // bool throwPressed = (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame) ||
+      //                     (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame);
+      bool throwPressed = attackAction.WasPressedThisFrame();
 
       if (throwPressed && math.lengthsq(lastInputDir) > 0.001f && playerNearbyChairs.Count > 0)
       {
