@@ -68,6 +68,7 @@ namespace Ggj2026Game
     NativeQueue<int> playerNearbyRemoveQueue;
     // TransformAccessArray chairTransformAccess;
     NativeArray<int> npcGrid; // size = gridWidth * gridHeight
+    NativeArray<int> chairsGrid;
 
     float2 playerPos;
     float2 lastInputDir = new float2(0f, 1f); // Default forward
@@ -79,12 +80,14 @@ namespace Ggj2026Game
     int displayScore = 0;
     bool inGame = false;
     float playStartTime = 0;
+    float lastThrowChair = 0;
+    float throwChairToCoolTime = 5f;
     int lastSeconds = -1;
     InputAction moveAction;
     InputAction attackAction;
 
     readonly float countSpeed = 50f;
-    Coroutine scoreRoutine;
+    // Coroutine scoreRoutine;
 
     void Start()
     {
@@ -118,9 +121,13 @@ namespace Ggj2026Game
       npcs = new NativeArray<NPCData>(maxChairs, Allocator.Persistent);
       chairs = new NativeArray<ChairData>(maxChairs, Allocator.Persistent);
       npcGrid = new NativeArray<int>(gridSize * gridSize, Allocator.Persistent);
+      chairsGrid = new NativeArray<int>(gridSize * gridSize, Allocator.Persistent);
 
       for (int i = 0; i < npcGrid.Length; i++)
+      {
         npcGrid[i] = -1;
+        chairsGrid[i] = -1;
+      }
 
       for (int i = 0; i < maxChairs; i++)
       {
@@ -138,6 +145,7 @@ namespace Ggj2026Game
         // Initialize data
         NPCData npc;
         npc.pos = new float2(pos.x, pos.z);
+        npc.vel = new float2(0f, 0f);
         npc.angry = 0;
         npc.cooldown = 0f;
         npcs[i] = npc;
@@ -151,8 +159,11 @@ namespace Ggj2026Game
         chair.active = 0;
         chair.pos = new float2(pos.x, pos.z);
         chair.vel = new float2(0f, 0f);
-        chair.owner = i;
         chair.nearbyPlayer = 0;
+        int cellX = (int)math.floor((chair.pos.x - worldMin.x) / chairHitRadius);
+        int cellY = (int)math.floor((chair.pos.y - worldMin.y) / chairHitRadius);
+        int cellIndex = cellX + cellY * gridSize;
+        chair.prevCell = cellIndex;
         chairs[i] = chair;
         UpdateMatrix(i, npc.pos, npcMatrices);
         UpdateMatrix(i, chair.pos, chairMatrices);
@@ -163,7 +174,10 @@ namespace Ggj2026Game
       ChairData chairTemp = chairs[maxChairs - 1];
       chairTemp.active = 0;
       chairTemp.pos = new float2(0, 0);
-      chairTemp.owner = -1;
+      int cellXTemp = (int)math.floor((chairTemp.pos.x - worldMin.x) / chairHitRadius);
+      int cellYTemp = (int)math.floor((chairTemp.pos.y - worldMin.y) / chairHitRadius);
+      int cellIndexTemp = cellXTemp + cellYTemp * gridSize;
+      chairTemp.prevCell = cellIndexTemp;
       chairs[maxChairs - 1] = chairTemp;
       UpdateMatrix(maxChairs - 1, chairTemp.pos, chairMatrices);
     }
@@ -189,6 +203,7 @@ namespace Ggj2026Game
       // if (chairTransformAccess.isCreated)
       //   chairTransformAccess.Dispose();
       npcGrid.Dispose();
+      chairsGrid.Dispose();
       if (npcMatrices.IsCreated)
         npcMatrices.Dispose();
       if (npcMatrixBuffer != null)
@@ -229,18 +244,6 @@ namespace Ggj2026Game
 
       // --- Player Input ---
       Vector2 inputVector = moveAction.ReadValue<Vector2>();
-      // if (Keyboard.current != null)
-      // {
-      //   // WASD keys
-      //   inputVector.x = (Keyboard.current.dKey.isPressed ? 1f : 0f) - (Keyboard.current.aKey.isPressed ? 1f : 0f);
-      //   inputVector.y = (Keyboard.current.wKey.isPressed ? 1f : 0f) - (Keyboard.current.sKey.isPressed ? 1f : 0f);
-      // }
-
-      // if (Gamepad.current != null)
-      // {
-      //   // Left stick overrides keyboard if present
-      //   inputVector = Gamepad.current.leftStick.ReadValue();
-      // }
 
       // Convert to float2 for data-oriented logic
       float2 input = new float2(inputVector.x, inputVector.y);
@@ -272,11 +275,17 @@ namespace Ggj2026Game
           var chair = chairs[chairIndex];
           chair.vel = lastInputDir * throwSpeed;
           chair.active = 1;
-          chair.owner = -1;
           chairs[chairIndex] = chair;
+          lastThrowChair = Time.time;
+          npcThrowCooldown = 0;
 
           playerNearbyChairs.Remove(chairIndex);
         }
+      }
+
+      if (Time.time > lastThrowChair + throwChairToCoolTime)
+      {
+        npcThrowCooldown = maxPlayTime;
       }
 
       // --- Jobs ---
@@ -306,6 +315,7 @@ namespace Ggj2026Game
         playerNearbyRemoveQueue = playerNearbyRemoveQueue.AsParallelWriter(),
         hitWriter = chairHitWriter,
         npcGrid = npcGrid,
+        chairsGrid = chairsGrid,
         cellSize = chairHitRadius,
         gridSize = gridSize,
         worldMin = worldMin,
@@ -317,11 +327,16 @@ namespace Ggj2026Game
       {
         npcs = npcs,
         chairs = chairs,
+        chairsGrid = chairsGrid,
+        t = Time.time,
         dt = Time.deltaTime,
         throwSpeed = throwSpeed,
         frameSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue),
         throwCooldown = npcThrowCooldown,
         throwQueue = npcThrowQueue.AsParallelWriter(),
+        cellSize = chairHitRadius,
+        gridSize = gridSize,
+        worldMin = worldMin,
         matrices = npcMatrices
       };
 
@@ -351,7 +366,6 @@ namespace Ggj2026Game
 
         // Chair is now "held" by NPC
         var chair = chairs[hit.chairIndex];
-        chair.owner = hit.npcIndex;
         chair.active = 0; // held, not flying
         chairs[hit.chairIndex] = chair;
 
@@ -368,7 +382,6 @@ namespace Ggj2026Game
       {
         var chair = chairs[t.chairIndex];
         chair.active = 1;
-        chair.owner = -1;
         chair.vel = t.direction * t.speed;
 
         // Optional: snap to NPC position if desired
@@ -463,6 +476,8 @@ namespace Ggj2026Game
       public NativeQueue<ChairHit>.ParallelWriter hitWriter;
 
       [ReadOnly] public NativeArray<int> npcGrid;
+      [NativeDisableParallelForRestriction]
+      public NativeArray<int> chairsGrid;
 
       public float cellSize;
       public int gridSize;
@@ -478,6 +493,7 @@ namespace Ggj2026Game
         {
           chair.pos += chair.vel * dt;
           UpdateMatrix(c, chair);
+          chair.vel = ReduceVelocity(chair.vel, 0.5f, dt);
         }
 
         // -----------------------
@@ -500,6 +516,7 @@ namespace Ggj2026Game
 
         if (chair.active == 0)
         {
+          chairsGrid[chair.prevCell] = c;
           chairs[c] = chair;
           return;
         }
@@ -512,6 +529,14 @@ namespace Ggj2026Game
         if ((uint)cellX < gridSize && (uint)cellY < gridSize)
         {
           int cellIndex = cellX + cellY * gridSize;
+          if (chair.prevCell > -1 && chair.prevCell != cellIndex)
+          {
+            if (chairsGrid[chair.prevCell] == c)
+            {
+              chairsGrid[chair.prevCell] = -1;
+            }
+          }
+          chair.prevCell = cellIndex;
           int npcIndex = npcGrid[cellIndex];
           if (npcIndex > -1)
           {
@@ -526,7 +551,12 @@ namespace Ggj2026Game
             chair.active = 0;
             chair.vel = float2.zero;
             chairs[c] = chair;
+            return;
           }
+        }
+        if (chair.vel.Equals(float2.zero))
+        {
+          chair.active = 0;
         }
         chairs[c] = chair;
       }
@@ -539,6 +569,13 @@ namespace Ggj2026Game
 
         matrices[index] = Matrix4x4.TRS(pos, rot, scale);
       }
+
+      float2 ReduceVelocity(float2 velocity, float deceleration, float deltaTime)
+      {
+        return math.length(velocity) <= deceleration * deltaTime
+            ? float2.zero
+            : velocity * (1f - deceleration * deltaTime);
+      }
     }
 
     [BurstCompile]
@@ -546,7 +583,9 @@ namespace Ggj2026Game
     {
       public NativeArray<NPCData> npcs;
       [ReadOnly] public NativeArray<ChairData> chairs;
+      [ReadOnly] public NativeArray<int> chairsGrid;
 
+      public float t;
       public float dt;
       public float throwCooldown;
       public float throwSpeed;
@@ -555,51 +594,104 @@ namespace Ggj2026Game
       // Thread-safe queue for main thread processing
       public NativeQueue<ChairThrow>.ParallelWriter throwQueue;
 
+      public float cellSize;
+      public int gridSize;
+      public float2 worldMin;
       public NativeArray<Matrix4x4> matrices;
 
       public void Execute(int i)
       {
         NPCData npc = npcs[i];
+        npc = Move(i, npc, dt, t);
         if (npc.angry == 0)
-          return;
-
-        float cd = npc.cooldown - dt;
-
-        if (cd <= 0f)
         {
-          npc.cooldown = throwCooldown;
+          npcs[i] = npc;
+          UpdateMatrix(i, npc);
+          return;
+        }
+
+        //float cd = npc.cooldown - dt;
+
+        if (throwCooldown <= 0f)
+        {
+          //npc.cooldown = throwCooldown;
 
           // Find a chair owned by this NPC
-          for (int c = 0; c < chairs.Length; c++)
+          int cellX = (int)math.floor((npc.pos.x - worldMin.x) / cellSize);
+          int cellY = (int)math.floor((npc.pos.y - worldMin.y) / cellSize);
+          int cellIndex = cellX + cellY * gridSize;
+          if ((uint)cellX < gridSize && (uint)cellY < gridSize)
           {
-            ChairData chair = chairs[c];
-            if (chair.owner == i && chair.active == 0)
+            int chairIndex = chairsGrid[cellIndex];
+            if (chairIndex > -1)
             {
-              uint seed = (uint)(i * 9176 + c + 13 + frameSeed);
-              var rng = new Unity.Mathematics.Random(seed);
-              float angle = rng.NextFloat(0f, math.PI * 2f);
-              float2 dir = new float2(math.cos(angle), math.sin(angle));
-
-              // Enqueue a throw request
-              throwQueue.Enqueue(new ChairThrow
+              ChairData chair = chairs[chairIndex];
+              if (chair.active == 0)
               {
-                npcIndex = i,
-                chairIndex = c,
-                direction = dir,
-                speed = throwSpeed
-              });
+                uint seed = (uint)(i * 9176 + chairIndex + 13 + frameSeed);
+                var rng = new Unity.Mathematics.Random(seed);
+                float angle = rng.NextFloat(0f, math.PI * 2f);
+                float2 dir = new float2(math.cos(angle), math.sin(angle));
 
-              break; // throw only one chair
+                // Enqueue a throw request
+                throwQueue.Enqueue(new ChairThrow
+                {
+                  npcIndex = i,
+                  chairIndex = chairIndex,
+                  direction = dir,
+                  speed = throwSpeed
+                });
+              }
             }
           }
         }
-        else
-        {
-          npc.cooldown = cd;
-        }
+        // else
+        // {
+        //   npc.cooldown = cd;
+        // }
 
         npcs[i] = npc;
         UpdateMatrix(i, npc);
+      }
+
+      NPCData Move(int index, NPCData npc, float dt, float t)
+      {
+        float directionChangeTime = 2f;
+        float2 boundsMax = -worldMin;
+        float speed = 2f;
+        float turnSpeed = 2f;
+
+        // Hash-based pseudo-random angle from time bucket
+        float timeBucket = math.floor(t / directionChangeTime);
+        float hash = math.frac(math.sin(timeBucket * 12.9898f + index * 78.233f) * 43758.5453f);
+        float angle = hash * math.PI * 2f;
+
+        float2 targetDirection = new float2(math.cos(angle), math.sin(angle));
+        float2 desiredVelocity = targetDirection * speed;
+        float speedJitter = math.lerp(0.8f, 1.2f, math.frac(math.sin(index * 19.17f) * 12345.678f));
+        desiredVelocity *= speedJitter;
+
+        // Smooth steering
+        npc.vel = math.lerp(npc.vel, desiredVelocity, turnSpeed * dt);
+
+        // Move
+        npc.pos += npc.vel * dt;
+
+        // Soft bounds steering
+        float2 center = (worldMin + boundsMax) * 0.5f;
+        float2 halfSize = (boundsMax - worldMin) * 0.5f;
+
+        float2 offset = npc.pos - center;
+        float2 normalizedOffset = offset / halfSize;
+
+        if (math.any(math.abs(normalizedOffset) > 1f))
+        {
+          float2 steerBack = math.normalize(center - npc.pos);
+          npc.vel = math.lerp(npc.vel, steerBack * speed, 3f * dt);
+        }
+
+        npc.pos = math.clamp(npc.pos, worldMin, boundsMax);
+        return npc;
       }
 
       void UpdateMatrix(int index, NPCData npc)
@@ -735,21 +827,21 @@ namespace Ggj2026Game
       // scoreRoutine = StartCoroutine(AnimateScore());
     }
 
-    IEnumerator AnimateScore()
-    {
-      while (displayScore != score)
-      {
-        displayScore = (int)Mathf.MoveTowards(
-            displayScore,
-            score,
-            Mathf.CeilToInt(countSpeed * Time.deltaTime)
-        );
+    // IEnumerator AnimateScore()
+    // {
+    //   while (displayScore != score)
+    //   {
+    //     displayScore = (int)Mathf.MoveTowards(
+    //         displayScore,
+    //         score,
+    //         Mathf.CeilToInt(countSpeed * Time.deltaTime)
+    //     );
 
-        inGameScoreText.SetText(displayScore.ToString("#,0", CultureInfo.InvariantCulture));
-        yield return null;
-      }
-      scoreRoutine = null;
-    }
+    //     inGameScoreText.SetText(displayScore.ToString("#,0", CultureInfo.InvariantCulture));
+    //     yield return null;
+    //   }
+    //   scoreRoutine = null;
+    // }
 
     public void PlayGame()
     {

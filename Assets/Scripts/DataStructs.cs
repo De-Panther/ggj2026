@@ -5,6 +5,7 @@ namespace Ggj2026Game
   public struct NPCData
   {
     public float2 pos;
+    public float2 vel;
     public float cooldown;
     public byte angry;
   }
@@ -15,7 +16,7 @@ namespace Ggj2026Game
     public float2 vel;
     public byte active;
     public byte nearbyPlayer; // Is there a nearby player
-    public int owner;
+    public int prevCell;
   }
 
   public struct PlayerData

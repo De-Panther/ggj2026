@@ -2868,7 +2868,7 @@ MonoBehaviour:
   throwSpeed: 10
   chairHitRadius: 0.5
   area: 100
-  npcThrowCooldown: 1
+  npcThrowCooldown: 0
 --- !u!4 &1900550528
 Transform:
   m_ObjectHideFlags: 0
